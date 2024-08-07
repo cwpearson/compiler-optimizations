@@ -51,7 +51,12 @@ nice -n20 cmake --build $KERNELS_BUILD/perf_test --parallel $(nproc) |& tee $ROO
 mv "$KERNELS_BUILD/perf_test" "$ROOT/perf"
 
 # Run Kokkos Kernels perf tests
-$ROOT/perf/sparse/KokkosKernels_sparse_spmv_benchmark --benchmark_out_format=csv --benchmark_out=$ROOT/sparse_spmv.csv
+$ROOT/perf/sparse/KokkosKernels_sparse_spmv_benchmark \
+  --benchmark_out_format=csv \
+  --benchmark_out=$ROOT/sparse_spmv.csv \
+  --benchmark_repetitions=5 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_display_aggregates_only=true
 
 # Build Kokkos Kernels with ftime-trace
 rm -rf $KERNELS_BUILD
