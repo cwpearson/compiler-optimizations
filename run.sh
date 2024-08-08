@@ -59,16 +59,18 @@ $ROOT/perf/sparse/KokkosKernels_sparse_spmv_benchmark \
   --benchmark_display_aggregates_only=true
 
 # Build Kokkos Kernels with ftime-trace
-rm -rf $KERNELS_BUILD
-cmake -S $KERNELS_SRC -B $KERNELS_BUILD \
--DKokkos_ROOT=$KOKKOS_INSTALL \
--DCMAKE_CXX_COMPILER="${CXX}" \
--DCMAKE_CXX_FLAGS="$CXX_FLAGS -ftime-trace"
-VERBOSE=1 time cmake --build $KERNELS_BUILD |& tee $ROOT/build_trace.log
-mkdir -p "$ROOT/trace"
-for trace in $(find $KERNELS_BUILD -name "*.json"); do
-  mv "$trace" "$ROOT/trace/."
-done
+if [ "${CXX}" == "clang++" ]; then
+  rm -rf $KERNELS_BUILD
+  cmake -S $KERNELS_SRC -B $KERNELS_BUILD \
+  -DKokkos_ROOT=$KOKKOS_INSTALL \
+  -DCMAKE_CXX_COMPILER="${CXX}" \
+  -DCMAKE_CXX_FLAGS="$CXX_FLAGS -ftime-trace"
+  VERBOSE=1 time cmake --build $KERNELS_BUILD |& tee $ROOT/build_trace.log
+  mkdir -p "$ROOT/trace"
+  for trace in $(find $KERNELS_BUILD -name "*.json"); do
+    mv "$trace" "$ROOT/trace/."
+  done
+fi
 
 # Builds to get timing
 for b in $(seq 0 3); do
