@@ -16,13 +16,20 @@ def extract_time(file_path):
 
 def process_directory(directory):
     print(f"process {directory}")
-    times = []
-    with open(directory / "sparse_spmv.csv", 'r') as f:
-        reader = csv.reader(f, delimiter=',', quotechar='"')
-        for row in reader:
-            if row[0] == "KokkosSparse_spmv/n:1000000/nv:10/real_time":
-                times.append(float(row[2]))
-    return times
+    try:
+        with open(directory / "sparse_spmv.csv", 'r') as f:
+            reader = csv.reader(f, delimiter=',', quotechar='"')
+            mean, stddev = None, None
+            for row in reader:
+                if row[0] == "KokkosSparse_spmv/n:1000000/nv:10/real_time_mean":
+                    mean = float(row[2])
+                elif row[0] == "KokkosSparse_spmv/n:1000000/nv:10/real_time_stddev":
+                    stddev = float(row[2])
+            if mean is not None and stddev is not None:
+                return (mean, stddev)
+    except FileNotFoundError:
+        pass
+    return None
 
 def analyze_directories(base_paths: list[Path]):
     results = {}
@@ -30,9 +37,7 @@ def analyze_directories(base_paths: list[Path]):
         if dir_path.is_dir():
             times = process_directory(dir_path)
             if times:
-                mean = np.mean(times)
-                sem = stats.sem(times)
-                results[dir_path.name] = (mean, sem)
+                results[dir_path.name] = times
     return results
 
 def create_bar_graph(results):
@@ -43,11 +48,11 @@ def create_bar_graph(results):
     plt.figure(figsize=(12, 6))
     plt.bar(directories, means, yerr=errors, capsize=5)
     plt.xlabel('Configuration')
-    plt.ylabel('SpMV Time [s]')
-    plt.title('SpMV Time by Configuration')
+    plt.ylabel('SpMV MV Time [s]')
+    plt.title('SpMV MV Time by Configuration')
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    plt.savefig('spmv.png')
+    plt.savefig('spmv_mv.png')
     plt.show()
 
 # Main execution

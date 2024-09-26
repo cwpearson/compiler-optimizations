@@ -6,14 +6,18 @@ from scipy import stats
 import sys
 
 def extract_size(file_path):
-    with file_path.open('r') as f:
-        content = f.read()
-        match = re.search(r'(\d+)', content)
-        if match:
-            return float(match.group(1))
+    try:
+        with file_path.open('r') as f:
+            content = f.read()
+            match = re.search(r'(\d+)', content)
+            if match:
+                return float(match.group(1))
+    except FileNotFoundError:
+        print(f"skip {file_path}")
     return None
 
 def process_directory(directory):
+    print(directory)
     time = extract_size(directory / 'du.log')
     if time is not None:
         return time
@@ -36,7 +40,7 @@ def create_bar_graph(results):
     plt.figure(figsize=(12, 6))
     plt.bar(directories, means, capsize=5)
     plt.xlabel('Configuration')
-    plt.ylabel('Library Size [B]')
+    plt.ylabel('Library Size [KiB]')
     plt.title('Library Size by Configuration')
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
