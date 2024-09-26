@@ -4,7 +4,7 @@ set -eou pipefail
 
 ENV="$1"
 CONFIG="$2"
-ROOT="${ENV}_$CONFIG"
+ROOT="work/${ENV}_$CONFIG"
 
 mkdir -p $ROOT
 rm -rf $ROOT/*.log "$ROOT/perf"

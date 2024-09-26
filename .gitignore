@@ -1,2 +1,6 @@
 .python-version
 .venv
+kokkos
+kernels
+work
+*.png
