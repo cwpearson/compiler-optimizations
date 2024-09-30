@@ -3,4 +3,4 @@ spack load llvm@14.0.6
 
 CXX=clang++
 
-"${CXX}" --version |& tee $ROOT/cxx_version.log
+"${CXX}" --version |& tee $JOB_ROOT/cxx_version.log
