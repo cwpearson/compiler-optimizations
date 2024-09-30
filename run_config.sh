@@ -68,7 +68,7 @@ rm -rf $KERNELS_BUILD
 cmake -S $KERNELS_SRC -B $KERNELS_BUILD \
   "${KERNELS_CONFIG_OPTS[@]}" \
   -DKokkos_ROOT=$KOKKOS_INSTALL \
-  -DCMAKE_CXX_COMPILER="${CXX}" \
+  -DCMAKE_CXX_COMPILER="${CXX}"
 for b in $(seq 0 3); do
   VERBOSE=1 time taskset -c 2 cmake --build $KERNELS_BUILD |& tee $ROOT/build_$b.log
 
