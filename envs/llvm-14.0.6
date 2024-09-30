@@ -1,0 +1,6 @@
+spack install llvm@14.0.6
+spack load llvm@14.0.6
+
+CXX=clang++
+
+"${CXX}" --version |& tee $ROOT/cxx_version.log
