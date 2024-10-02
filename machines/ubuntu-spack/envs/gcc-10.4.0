@@ -1,6 +1,0 @@
-spack install gcc@10.4.0
-spack load gcc@10.4.0
-
-CXX=g++
-
-"${CXX}" --version |& tee $JOB_ROOT/cxx_version.log

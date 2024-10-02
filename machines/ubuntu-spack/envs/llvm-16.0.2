@@ -1,6 +1,0 @@
-spack install llvm@16.0.2
-spack load llvm@16.0.2
-
-CXX=clang++
-
-"${CXX}" --version |& tee $JOB_ROOT/cxx_version.log

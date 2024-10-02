@@ -1,7 +1,0 @@
-machine_sysinfo() {
-    date |& tee $JOB_ROOT/date.log
-    lscpu |& tee $JOB_ROOT/lscpu.log
-    cat /etc/os-release |& tee $JOB_ROOT/os_release.log
-    uname -a |& tee $JOB_ROOT/uname_a.log
-    cmake --version |& tee $JOB_ROOT/cmake_version.log
-}

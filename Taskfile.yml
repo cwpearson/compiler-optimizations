@@ -217,6 +217,32 @@ tasks:
         EOF
       - chmod +x "{{.JOB_DIR}}/runner.sh"
 
+  measure-compile-time:
+    requires:
+      vars: [MACHINE_ROOT, JOB_DIR, BUILD_TYPE, KOKKOS_ROOT, KERNELS_SRC, KERNELS_BUILD]
+    deps:
+      - task: clone-kernels
+        vars:
+          DST: "{{.KERNELS_SRC}}"
+    vars:
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds:
+      - rm -rf "{{.KERNELS_BUILD}}"
+      - |
+        {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
+          -DCMAKE_BUILD_TYPE="{{.BUILD_TYPE}}" \
+          -DKokkos_ROOT={{.KOKKOS_ROOT}}
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_1.log"
+      - "du -sh {{.KERNELS_BUILD}}/libkokkoskernels.a > {{.JOB_DIR}}/du.log"
+      - nm "{{.KERNELS_BUILD}}/libkokkoskernels.a" > "{{.JOB_DIR}}/nm.log"
+      - "{{.RUNNER}} time make -C {{.KERNELS_BUILD}} clean"
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_2.log"
+      - "{{.RUNNER}} time make -C {{.KERNELS_BUILD}} clean"
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_3.log"
+      - rm -rf "{{.KERNELS_BUILD}}"
+      - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+    status:
+      - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
   worker:
     requires: 
       vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE]
@@ -246,3 +272,11 @@ tasks:
         vars:
           JOB_DIR: "{{.JOB_DIR}}"
           MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+      - task: measure-compile-time
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          KOKKOS_ROOT: "{{.KOKKOS_INSTALL}}"
+          KERNELS_SRC: "{{.KERNELS_SRC}}"
+          KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels"
