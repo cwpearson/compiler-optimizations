@@ -9,7 +9,7 @@ tasks:
     cmds:
       - for:
           matrix:
-            COMPILER: [gcc@9.5.0, gcc@10.4.0]
+            COMPILER: [gcc@9.5.0, gcc@10.4.0, gcc@11.3.0, gcc@12.3.0, gcc@13.1.0, llvm@14.0.6, llvm@15.0.7, llvm@16.0.2]
             CONFIG: [Release, RelWithDebInfo, MinSizeRel]
         task: worker
         vars:
