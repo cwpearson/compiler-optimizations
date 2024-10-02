@@ -1,0 +1,248 @@
+version: '3'
+
+tasks:
+  all:
+    requires:
+      vars: [MACHINE_ROOT]
+    vars:
+      MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+    cmds:
+      - for:
+          matrix:
+            COMPILER: [gcc@9.5.0, gcc@10.4.0]
+            CONFIG: [Release, RelWithDebInfo, MinSizeRel]
+        task: worker
+        vars:
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          BUILD_TYPE: "{{.ITEM.CONFIG}}"
+          COMPILER: "{{.ITEM.COMPILER}}"
+
+  git-clone:
+    requires:
+      vars: [DST, URL, BRANCH, SHA]
+    cmds:
+      - rm -rf "{{.DST}}"
+      - git clone --depth 1 --branch "{{.BRANCH}}" "{{.URL}}" "{{.DST}}"
+    status:
+      - test -d "{{.DST}}"
+      - cd "{{.DST}}" && git rev-parse HEAD | grep "{{.SHA}}"
+      - cd "{{.DST}}" && git status --porcelain
+
+  clone-kokkos:
+    run: once
+    requires:
+      vars: [DST]
+    deps:
+      - task: git-clone
+        vars:
+          DST: "{{.DST}}"
+          URL: "https://github.com/kokkos/kokkos.git"
+          BRANCH: 4.3.01
+          SHA: "6ecdf605e0f7639adec599d25cf0e206d7b8f9f5"
+
+  clone-kernels:
+    run: once
+    requires:
+      vars: [DST]
+    deps:
+      - task: git-clone
+        vars:
+          DST: "{{.DST}}"
+          URL: "https://github.com/kokkos/kokkos-kernels.git"
+          BRANCH: 4.3.01
+          SHA: "d1a91b8a1f3aa4a972d7ff198bce73ec3248f641"
+
+  install-kokkos:
+    requires:
+      vars: [CONFIG, SRC_DIR, JOB_DIR, INSTALL_DIR]
+    vars:
+      BUILD_DIR: "{{.JOB_DIR}}/build-kokkos"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    deps:
+      - task: clone-kokkos
+        vars:
+          DST: "{{.SRC_DIR}}"
+    cmds:
+      - |
+        {{.RUNNER}} cmake -S "{{.SRC_DIR}}" -B "{{.BUILD_DIR}}" \
+          -DCMAKE_INSTALL_PREFIX="{{.INSTALL_DIR}}" \
+          -DCMAKE_BUILD_TYPE="{{.CONFIG}}"
+      - "{{.RUNNER}} nice -n20 cmake --build {{.BUILD_DIR}} --target install --parallel $(nproc)"
+      - rm -rf "{{.BUILD_DIR}}"
+      - touch "{{.INSTALL_DIR}}/INSTALL_COMPLETE"
+    status:
+      - test -f "{{.INSTALL_DIR}}/INSTALL_COMPLETE"
+
+  build-kernels:
+    requires:
+      vars: [BUILD_TYPE, KOKKOS_ROOT, KERNELS_SRC, KERNELS_BUILD, JOB_DIR]
+    deps:
+      - task: clone-kernels
+        vars:
+          DST: "{{.KERNELS_SRC}}"
+    vars:
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds:
+      - |
+        {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
+          -DCMAKE_BUILD_TYPE="{{.BUILD_TYPE}}" \
+          -DKokkosKernels_ENABLE_TESTS=ON \
+          -DKokkosKernels_ENABLE_PERFTESTS=ON \
+          -DKokkosKernels_ENABLE_BENCHMARK=ON \
+          -DKokkos_ROOT={{.KOKKOS_ROOT}}
+      - "{{.RUNNER}} nice -n20 make -C {{.KERNELS_BUILD}}/perf_test -j $(nproc)"
+      - touch "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
+    status:
+      - test -f "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
+
+  build-kernels-perf:
+    requires:
+      vars: [BUILD_TYPE, JOB_DIR, KERNELS_SRC, KOKKOS_ROOT]
+    vars:
+      KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels"
+    deps:
+      - task: build-kernels
+        vars:
+          KERNELS_SRC: "{{.KERNELS_SRC}}"
+          KERNELS_BUILD: "{{.KERNELS_BUILD}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          KOKKOS_ROOT: "{{.KOKKOS_ROOT}}"
+    cmds:
+      - mv "{{.KERNELS_BUILD}}/perf_test" {{.JOB_DIR}}/perf
+      - rm -rf "{{.KERNELS_BUILD}}"
+    status:
+      - test -d "{{.JOB_DIR}}/perf"
+
+  run-spmv:
+    requires:
+      vars: [JOB_DIR]
+    vars:
+      PERF_ROOT: "{{.JOB_DIR}}/perf"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds: 
+      - |
+        "{{.RUNNER}}" "{{.PERF_ROOT}}/sparse/KokkosKernels_sparse_spmv_benchmark" \
+          --benchmark_out_format=csv \
+          --benchmark_out={{.JOB_DIR}}/sparse_spmv.csv \
+          --benchmark_repetitions=5 \
+          --benchmark_report_aggregates_only=true
+      - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+    sources:
+      - "{{.PERF_ROOT}}/sparse/KokkosKernels_sparse_spmv_benchmark"
+    status:
+      - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+
+  download-mat:
+    run: once
+    requires:
+      vars: [MACHINE_ROOT]
+    cmds:
+      - |
+        wget -L --continue \
+          https://suitesparse-collection-website.herokuapp.com/MM/Embree/ifiss_mat.tar.gz \
+          -O "{{.MACHINE_ROOT}}/ifiss_mat.tar.gz"
+      - tar -C "{{.MACHINE_ROOT}}" -xf "{{.MACHINE_ROOT}}/ifiss_mat.tar.gz"
+    status:
+      - test -f "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx"
+      - md5sum "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx" | grep 7910557c9fbc815329a3f2bbe52dc590
+
+    
+  run-spgemm:
+    requires:
+      vars: [MACHINE_ROOT, JOB_DIR]
+    vars:
+      PERF_ROOT: "{{.JOB_DIR}}/perf"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    deps:
+      - task: download-mat
+        vars:
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+    cmds:
+      - | 
+        "{{.RUNNER}}" "{{.PERF_ROOT}}/sparse/sparse_spgemm" \
+          --amtx "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx" \
+          | tee "{{.JOB_DIR}}/sparse_spgemm_ifiss_mat.txt"
+      - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+    sources:
+      - "{{.JOB_DIR}}/sparse/sparse_spgemm"
+    status:
+      - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+
+  run-gemm:
+    requires:
+      vars: [JOB_DIR]
+    vars:
+      PERF_ROOT: "{{.JOB_DIR}}/perf"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds: 
+      - |
+        "{{.RUNNER}}" "{{.PERF_ROOT}}/blas/blas3/KokkosBlas3_gemm_perf_test" \
+          | tee "{{.JOB_DIR}}/KokkosBlas3_gemm_perf_test.txt"
+      - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+    sources:
+      - "{{.JOB_DIR}}/perf/blas/blas3/KokkosBlas3_gemm_perf_test"
+    status:
+      - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+
+  run-perf-tests:
+    requires:
+      vars: [MACHINE_ROOT, JOB_DIR]
+    cmds:
+      - task: run-spmv
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+      - task: run-spgemm
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+      - task: run-gemm
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+
+  make-runner:
+    run: when_changed # (once for each unique set of vars)
+    requires: 
+      vars: [JOB_DIR, COMPILER]
+    cmds:
+      - mkdir -p "{{.JOB_DIR}}"
+      - |
+        cat > "{{.JOB_DIR}}/runner.sh" << EOF
+        #! /bin/bash
+        set -eou pipefail
+        spack install {{.COMPILER}}
+        spack load {{.COMPILER}}
+        \$@
+        EOF
+      - chmod +x "{{.JOB_DIR}}/runner.sh"
+
+  worker:
+    requires: 
+      vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE]
+    vars:
+      KOKKOS_SRC: "{{.MACHINE_ROOT}}/kokkos"
+      KERNELS_SRC: "{{.MACHINE_ROOT}}/kernels"
+      JOB_DIR: "{{.MACHINE_ROOT}}/{{.COMPILER}}_{{.BUILD_TYPE}}"
+      KOKKOS_INSTALL: "{{.JOB_DIR}}/install-kokkos"
+    cmds:
+      - task: make-runner
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+          COMPILER: "{{.COMPILER}}"
+      - task: install-kokkos
+        vars:
+          CONFIG: "{{.BUILD_TYPE}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+          SRC_DIR: "{{.KOKKOS_SRC}}"
+          INSTALL_DIR: "{{.KOKKOS_INSTALL}}"
+      - task: build-kernels-perf
+        vars:
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+          KERNELS_SRC: "{{.KERNELS_SRC}}"
+          KOKKOS_ROOT: "{{.KOKKOS_INSTALL}}"
+      - task: run-perf-tests
+        vars:
+          JOB_DIR: "{{.JOB_DIR}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"

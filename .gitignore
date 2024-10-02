@@ -4,3 +4,4 @@ kokkos
 kernels
 work
 *.png
+.task
