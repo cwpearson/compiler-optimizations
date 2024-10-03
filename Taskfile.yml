@@ -70,7 +70,7 @@ tasks:
         EXTRA_CMAKE_FLAGS=""
         if [ "{{.CONFIG}}" = "Release-Native" ]; then
           CMAKE_BUILD_TYPE="Release"
-          EXTRA_CMAKE_FLAGS="-DKokkos_ARCH=NATIVE"
+          EXTRA_CMAKE_FLAGS="-DKokkos_ARCH_NATIVE=ON"
         fi
         {{.RUNNER}} cmake -S "{{.SRC_DIR}}" -B "{{.BUILD_DIR}}" \
           -DCMAKE_INSTALL_PREFIX="{{.INSTALL_DIR}}" \
@@ -122,8 +122,7 @@ tasks:
           BUILD_TYPE: "{{.BUILD_TYPE}}"
           KOKKOS_ROOT: "{{.KOKKOS_ROOT}}"
     cmds:
-      - mv "{{.KERNELS_BUILD}}/perf_test" {{.JOB_DIR}}/perf
-      - rm -rf "{{.KERNELS_BUILD}}"
+      - cp -r "{{.KERNELS_BUILD}}/perf_test" {{.JOB_DIR}}/perf
     status:
       - test -d "{{.JOB_DIR}}/perf"
 
