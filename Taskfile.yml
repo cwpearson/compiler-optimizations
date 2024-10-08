@@ -9,9 +9,6 @@ tasks:
     requires:
       vars: [MACHINE_ROOT]
     cmds:
-      # - task: tester
-      #   vars:
-      #     BUILD_TYPE: Release-Native
       - for:
           matrix:
             COMPILER: [gcc@9.5.0, gcc@10.4.0, gcc@11.3.0, gcc@12.3.0, gcc@13.1.0, llvm@14.0.6, llvm@15.0.7, llvm@16.0.2]
@@ -37,7 +34,7 @@ tasks:
     run: once
     requires:
       vars: [DST]
-    deps:
+    cmds:
       - task: git-clone
         vars:
           DST: "{{.DST}}"
@@ -49,7 +46,7 @@ tasks:
     run: once
     requires:
       vars: [DST]
-    deps:
+    cmds:
       - task: git-clone
         vars:
           DST: "{{.DST}}"
@@ -59,15 +56,11 @@ tasks:
 
   install-kokkos:
     requires:
-      vars: [BUILD_TYPE, SRC_DIR, JOB_DIR, INSTALL_DIR]
-    vars:
-      BUILD_DIR: "{{.JOB_DIR}}/build-kokkos"
-      RUNNER: "{{.JOB_DIR}}/runner.sh"
-    deps:
+      vars: [BUILD_TYPE, SRC_DIR, BUILD_DIR, INSTALL_DIR, RUNNER]
+    cmds:
       - task: clone-kokkos
         vars:
           DST: "{{.SRC_DIR}}"
-    cmds:
       - |
         CMAKE_BUILD_TYPE="{{.BUILD_TYPE}}"
         EXTRA_CMAKE_FLAGS=""
@@ -86,16 +79,88 @@ tasks:
     status:
       - test -f "{{.INSTALL_DIR}}/INSTALL_COMPLETE"
 
-  build-kernels:
+  configure-kernels:
     requires:
-      vars: [BUILD_TYPE, KOKKOS_ROOT, KERNELS_SRC, KERNELS_BUILD, JOB_DIR]
-    deps:
-      - task: clone-kernels
-        vars:
-          DST: "{{.KERNELS_SRC}}"
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR, BUILD_DIR]
     vars:
+      KOKKOS_ROOT: "{{.JOB_DIR}}/install-kokkos"
+      KERNELS_SRC: "{{.MACHINE_ROOT}}/src-kernels"
+      KERNELS_BUILD: "{{.BUILD_DIR}}"
       RUNNER: "{{.JOB_DIR}}/runner.sh"
     cmds:
+      - task: make-runner
+        vars:
+          DST: "{{.RUNNER}}"
+          COMPILER: "{{.COMPILER}}"
+      - task: install-kokkos
+        vars:
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          SRC_DIR: "{{.MACHINE_ROOT}}/src-kokkos"
+          BUILD_DIR: "{{.JOB_DIR}}/build-kokkos"
+          INSTALL_DIR: "{{.KOKKOS_ROOT}}"
+          RUNNER: "{{.RUNNER}}"
+      - task: clone-kernels
+        vars:
+          DST: "{{.KERNELS_SRC}}/src-kernels"
+      - |
+        CMAKE_BUILD_TYPE="{{.BUILD_TYPE}}"
+        if [ "{{.BUILD_TYPE}}" = "Release-Native" ]; then
+          CMAKE_BUILD_TYPE="Release"
+        fi
+        ALSO_BUILD_PERF_OPTS=""
+        if [ "" = "1" ]; then
+          ALSO_BUILD_PERF_OPTS=""
+        fi
+        {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
+          -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+          -DKokkos_ROOT={{.KOKKOS_ROOT}}
+    status:
+      - test -f "{{.KERNELS_BUILD}}/CMakeCache.txt"
+
+  build-kernels:
+    requires:
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR]
+    vars:
+      KOKKOS_ROOT: "{{.JOB_DIR}}/install-kokkos"
+      KERNELS_SRC: "{{.MACHINE_ROOT}}/src-kernels"
+      KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds:
+      - task: configure-kernels
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+          BUILD_DIR: "{{.JOB_DIR}}/build-kernels"
+      - "{{.RUNNER}} nice -n20 make -C {{.KERNELS_BUILD}} -j $(nproc)"
+      - touch "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
+    status:
+      - test -f "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
+
+  build-kernels-perf:
+    requires:
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR]
+    vars:
+      KOKKOS_ROOT: "{{.JOB_DIR}}/install-kokkos"
+      KERNELS_SRC: "{{.MACHINE_ROOT}}/src-kernels"
+      KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels-perf"
+      RUNNER: "{{.JOB_DIR}}/runner.sh"
+    cmds:
+      - task: make-runner
+        vars:
+          DST: "{{.RUNNER}}"
+          COMPILER: "{{.COMPILER}}"
+      - task: clone-kernels
+        vars:
+          DST: "{{.KERNELS_SRC}}/src-kernels"
+      - task: install-kokkos
+        vars:
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          SRC_DIR: "{{.MACHINE_ROOT}}/src-kokkos"
+          BUILD_DIR: "{{.JOB_DIR}}/build-kokkos"
+          INSTALL_DIR: "{{.KOKKOS_ROOT}}"
+          RUNNER: "{{.RUNNER}}"
       - |
         CMAKE_BUILD_TYPE="{{.BUILD_TYPE}}"
         if [ "{{.BUILD_TYPE}}" = "Release-Native" ]; then
@@ -103,40 +168,28 @@ tasks:
         fi
         {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
           -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+          -DKokkos_ROOT={{.KOKKOS_ROOT}} \
           -DKokkosKernels_ENABLE_TESTS=ON \
           -DKokkosKernels_ENABLE_PERFTESTS=ON \
-          -DKokkosKernels_ENABLE_BENCHMARK=ON \
-          -DKokkos_ROOT={{.KOKKOS_ROOT}}
+          -DKokkosKernels_ENABLE_BENCHMARK=ON
       - "{{.RUNNER}} nice -n20 make -C {{.KERNELS_BUILD}}/perf_test -j $(nproc)"
-      - touch "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
+      - mv {{.KERNELS_BUILD}}/perf_test {{.JOB_DIR}}/perf
     status:
-      - test -f "{{.KERNELS_BUILD}}/BUILD_COMPLETE"
-
-  build-kernels-perf:
-    requires:
-      vars: [BUILD_TYPE, JOB_DIR, KERNELS_SRC, KOKKOS_ROOT]
-    vars:
-      KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels"
-    deps:
-      - task: build-kernels
-        vars:
-          KERNELS_SRC: "{{.KERNELS_SRC}}"
-          KERNELS_BUILD: "{{.KERNELS_BUILD}}"
-          JOB_DIR: "{{.JOB_DIR}}"
-          BUILD_TYPE: "{{.BUILD_TYPE}}"
-          KOKKOS_ROOT: "{{.KOKKOS_ROOT}}"
-    cmds:
-      - cp -r "{{.KERNELS_BUILD}}/perf_test" {{.JOB_DIR}}/perf
-    status:
-      - test -d "{{.JOB_DIR}}/perf"
+      - test -d {{.JOB_DIR}}/perf
 
   run-spmv:
     requires:
-      vars: [JOB_DIR]
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR]
     vars:
       PERF_ROOT: "{{.JOB_DIR}}/perf"
       RUNNER: "{{.JOB_DIR}}/runner.sh"
-    cmds: 
+    cmds:
+      - task: build-kernels-perf
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
       - |
         "{{.RUNNER}}" "{{.PERF_ROOT}}/sparse/KokkosKernels_sparse_spmv_benchmark" \
           --benchmark_out_format=csv \
@@ -162,20 +215,24 @@ tasks:
     status:
       - test -f "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx"
       - md5sum "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx" | grep 7910557c9fbc815329a3f2bbe52dc590
-
     
   run-spgemm:
     requires:
-      vars: [MACHINE_ROOT, JOB_DIR]
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR]
     vars:
       PERF_ROOT: "{{.JOB_DIR}}/perf"
       RUNNER: "{{.JOB_DIR}}/runner.sh"
-    deps:
+    cmds:
       - task: download-mat
         vars:
           MACHINE_ROOT: "{{.MACHINE_ROOT}}"
           JOB_DIR: "{{.JOB_DIR}}"
-    cmds:
+      - task: build-kernels-perf
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
       - | 
         "{{.RUNNER}}" "{{.PERF_ROOT}}/sparse/sparse_spgemm" \
           --amtx "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx" \
@@ -188,11 +245,17 @@ tasks:
 
   run-gemm:
     requires:
-      vars: [JOB_DIR]
+      vars: [COMPILER, BUILD_TYPE, MACHINE_ROOT, JOB_DIR]
     vars:
       PERF_ROOT: "{{.JOB_DIR}}/perf"
       RUNNER: "{{.JOB_DIR}}/runner.sh"
-    cmds: 
+    cmds:
+      - task: build-kernels-perf
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
       - |
         "{{.RUNNER}}" "{{.PERF_ROOT}}/blas/blas3/KokkosBlas3_gemm_perf_test" \
           | tee "{{.JOB_DIR}}/KokkosBlas3_gemm_perf_test.txt"
@@ -204,95 +267,127 @@ tasks:
 
   run-perf-tests:
     requires:
-      vars: [MACHINE_ROOT, JOB_DIR]
+      vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE, JOB_DIR]
     cmds:
       - task: run-spmv
         vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
           JOB_DIR: "{{.JOB_DIR}}"
       - task: run-spgemm
         vars:
-          JOB_DIR: "{{.JOB_DIR}}"
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
           MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
       - task: run-gemm
         vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
           JOB_DIR: "{{.JOB_DIR}}"
 
   make-runner:
     run: when_changed # (once for each unique set of vars)
     requires: 
-      vars: [JOB_DIR, COMPILER]
+      vars: [DST, COMPILER]
     cmds:
-      - mkdir -p "{{.JOB_DIR}}"
+      - mkdir -p $(dirname "{{.DST}}")
       - |
-        cat > "{{.JOB_DIR}}/runner.sh" << EOF
+        cat > "{{.DST}}" << EOF
         #! /bin/bash
         set -eou pipefail
         spack install {{.COMPILER}}
         spack load {{.COMPILER}}
         \$@
         EOF
-      - chmod +x "{{.JOB_DIR}}/runner.sh"
+      - chmod +x "{{.DST}}"
 
   measure-compile-time:
     requires:
-      vars: [MACHINE_ROOT, JOB_DIR, BUILD_TYPE, KOKKOS_ROOT, KERNELS_SRC, KERNELS_BUILD]
-    deps:
-      - task: clone-kernels
-        vars:
-          DST: "{{.KERNELS_SRC}}"
+      vars: [COMPILER, MACHINE_ROOT, JOB_DIR, BUILD_TYPE]
     vars:
       RUNNER: "{{.JOB_DIR}}/runner.sh"
+      BUILD_DIR: "{{.JOB_DIR}}/build-kernels-time"
     cmds:
-      - rm -rf "{{.KERNELS_BUILD}}"
-      - |
-        {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
-          -DCMAKE_BUILD_TYPE="{{.BUILD_TYPE}}" \
-          -DKokkos_ROOT={{.KOKKOS_ROOT}}
-      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_1.log"
-      - "du -sh {{.KERNELS_BUILD}}/libkokkoskernels.a > {{.JOB_DIR}}/du.log"
-      - nm "{{.KERNELS_BUILD}}/libkokkoskernels.a" > "{{.JOB_DIR}}/nm.log"
-      - "{{.RUNNER}} time make -C {{.KERNELS_BUILD}} clean"
-      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_2.log"
-      - "{{.RUNNER}} time make -C {{.KERNELS_BUILD}} clean"
-      - "{{.RUNNER}} time taskset -c 2 make -C {{.KERNELS_BUILD}} |& tee {{.JOB_DIR}}/build_3.log"
-      - rm -rf "{{.KERNELS_BUILD}}"
+      - task: configure-kernels
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+          BUILD_DIR: "{{.BUILD_DIR}}"
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.BUILD_DIR}} |& tee {{.JOB_DIR}}/build_1.log"
+      - "{{.RUNNER}} time make -C {{.BUILD_DIR}} clean"
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.BUILD_DIR}} |& tee {{.JOB_DIR}}/build_2.log"
+      - "{{.RUNNER}} time make -C {{.BUILD_DIR}} clean"
+      - "{{.RUNNER}} time taskset -c 2 make -C {{.BUILD_DIR}} |& tee {{.JOB_DIR}}/build_3.log"
       - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
     status:
       - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
+
+  record-nm:
+    requires:
+      vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE]
+    vars:
+      JOB_DIR: "{{.MACHINE_ROOT}}/{{.COMPILER}}_{{.BUILD_TYPE}}"
+    cmds:
+      - task: build-kernels
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+      - nm "{{.JOB_DIR}}/build-kernels/libkokkoskernels.a" > "{{.JOB_DIR}}"/nm.out
+    status:
+      - test -f "{{.JOB_DIR}}/nm.out"
+
+  record-du:
+    requires:
+      vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE]
+    vars:
+      JOB_DIR: "{{.MACHINE_ROOT}}/{{.COMPILER}}_{{.BUILD_TYPE}}"
+    cmds:
+      - task: build-kernels
+        vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          JOB_DIR: "{{.JOB_DIR}}"
+      - du "{{.JOB_DIR}}/build-kernels/libkokkoskernels.a" > "{{.JOB_DIR}}"/du.out
+    status:
+      - test -f "{{.JOB_DIR}}/du.out"
+
   worker:
     requires: 
       vars: [MACHINE_ROOT, COMPILER, BUILD_TYPE]
     vars:
+      COMPILER: "{{.COMPILER}}"
       KOKKOS_SRC: "{{.MACHINE_ROOT}}/kokkos"
       KERNELS_SRC: "{{.MACHINE_ROOT}}/kernels"
       JOB_DIR: "{{.MACHINE_ROOT}}/{{.COMPILER}}_{{.BUILD_TYPE}}"
       KOKKOS_INSTALL: "{{.JOB_DIR}}/install-kokkos"
     cmds:
-      - task: make-runner
+      - task: record-nm
         vars:
-          JOB_DIR: "{{.JOB_DIR}}"
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
           COMPILER: "{{.COMPILER}}"
-      - task: install-kokkos
-        vars:
           BUILD_TYPE: "{{.BUILD_TYPE}}"
-          JOB_DIR: "{{.JOB_DIR}}"
-          SRC_DIR: "{{.KOKKOS_SRC}}"
-          INSTALL_DIR: "{{.KOKKOS_INSTALL}}"
-      - task: build-kernels-perf
+      - task: record-du
         vars:
+          MACHINE_ROOT: "{{.MACHINE_ROOT}}"
+          COMPILER: "{{.COMPILER}}"
           BUILD_TYPE: "{{.BUILD_TYPE}}"
-          JOB_DIR: "{{.JOB_DIR}}"
-          KERNELS_SRC: "{{.KERNELS_SRC}}"
-          KOKKOS_ROOT: "{{.KOKKOS_INSTALL}}"
       - task: run-perf-tests
         vars:
+          COMPILER: "{{.COMPILER}}"
+          BUILD_TYPE: "{{.BUILD_TYPE}}"
           JOB_DIR: "{{.JOB_DIR}}"
           MACHINE_ROOT: "{{.MACHINE_ROOT}}"
       - task: measure-compile-time
         vars:
+          COMPILER: "{{.COMPILER}}"
           JOB_DIR: "{{.JOB_DIR}}"
           MACHINE_ROOT: "{{.MACHINE_ROOT}}"
           BUILD_TYPE: "{{.BUILD_TYPE}}"
-          KOKKOS_ROOT: "{{.KOKKOS_INSTALL}}"
-          KERNELS_SRC: "{{.KERNELS_SRC}}"
-          KERNELS_BUILD: "{{.JOB_DIR}}/build-kernels-timed"
