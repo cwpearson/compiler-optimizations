@@ -6,6 +6,17 @@ from scipy import stats
 import sys
 import csv
 from dataclasses import dataclass
+from datetime import datetime
+
+def by_compiler_version(item: str) -> tuple[str, list[int]]:
+    try:
+        compiler, version, config = re.match(r'^(.+)@([\d.]+)_(.+)$', item).groups()
+        version_parts = version.split('.')
+        return (compiler, [int(part) for part in version_parts])
+    except AttributeError:
+        # If the string doesn't match the expected format,
+        # return a tuple that will sort after valid entries
+        return ('', [])
 
 def extract_time(file_path):
     with file_path.open('r') as f:
@@ -117,11 +128,14 @@ def analyze_directories(base_paths: list[Path]) -> dict[str, Perf]:
 
 def create_bar_graphs(results: dict[str, Perf]):
 
+    formatted_datetime = datetime.now().strftime("%m-%d-%Y %I:%M%p")
+
     # parse SpMV results
     spmv_x = []
     spmv_y = []
     spmv_yerr = []
-    for dir, perf in results.items():
+    for dir in sorted(results.keys(), key=by_compiler_version):
+        perf = results[dir]
         if perf.spmv_mean is not None and perf.spmv_stddev is not None:
             spmv_x.append(dir)
             spmv_y.append(perf.spmv_mean)
@@ -134,10 +148,11 @@ def create_bar_graphs(results: dict[str, Perf]):
     plt.bar(spmv_x, spmv_y, yerr=spmv_yerr, capsize=5)
     plt.xlabel('Configuration')
     plt.ylabel('SpMV MV Time [s]')
-    plt.title('SpMV MV Time by Configuration')
+    plt.title(f'SpMV MV Time by Configuration {formatted_datetime}')
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    for i in range(3, len(spmv_x), 3):
+    # Add vertical lines after every fourth group
+    for i in range(4, len(spmv_x), 4):
         plt.axvline(x=i - 0.5, color='gray', linestyle='--', alpha=0.7)
     plt.savefig('perf_spmv_mv.png')
 
@@ -147,7 +162,8 @@ def create_bar_graphs(results: dict[str, Perf]):
     spgemm_numeric_yerr = []
     spgemm_symbolic_y = []
     spgemm_symbolic_yerr = []
-    for dir, perf in results.items():
+    for dir in sorted(results.keys(), key=by_compiler_version):
+        perf = results[dir]
         if perf.spgemm_numeric_mean is not None and perf.spgemm_numeric_stddev is not None and perf.spgemm_symbolic_mean is not None and perf.spgemm_symbolic_stddev is not None:
             spgemm_x.append(dir)
             spgemm_numeric_y.append(perf.spgemm_numeric_mean)
@@ -162,12 +178,12 @@ def create_bar_graphs(results: dict[str, Perf]):
     bars2 = ax.bar(x + width/2, spgemm_numeric_y, width, label='Numeric', yerr=spgemm_numeric_yerr, capsize=5)
     ax.set_ylabel('SpGEMM Time [s]')
     ax.set_xlabel('Configuration')
-    ax.set_title('SpGEMM Time by Configuration')
+    ax.set_title(f'SpGEMM Time by Configuration ({formatted_datetime})')
     ax.set_xticks(x)
     ax.set_xticklabels(spgemm_x, rotation=45, ha='right')
     ax.legend()
-    # Add vertical lines after every third group
-    for i in range(3, len(spgemm_x), 3):
+    # Add vertical lines after every fourth group
+    for i in range(4, len(spgemm_x), 4):
         ax.axvline(x=i - 0.5, color='gray', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig('perf_spgemm.png')
@@ -178,7 +194,8 @@ def create_bar_graphs(results: dict[str, Perf]):
     gemm_ll_lr_y = []
     gemm_lr_ll_y = []
     gemm_lr_lr_y = []
-    for dir, perf in results.items():
+    for dir in sorted(results.keys(), key=by_compiler_version):
+        perf = results[dir]
         if perf.gemm_ll_ll_mean is not None and perf.gemm_ll_lr_mean is not None and perf.gemm_lr_ll_mean is not None and perf.gemm_lr_lr_mean is not None:
             gemm_x.append(dir)
             gemm_ll_ll_y.append(perf.gemm_ll_ll_mean)
@@ -195,12 +212,12 @@ def create_bar_graphs(results: dict[str, Perf]):
     ax.bar(x + 1.5*width, gemm_lr_lr_y, width, label='LR x LR', capsize=5)
     ax.set_ylabel('GEMM Time [s]')
     ax.set_xlabel('Configuration')
-    ax.set_title('GEMM Time by Configuration')
+    ax.set_title(f'GEMM Time by Configuration ({formatted_datetime})')
     ax.set_xticks(x)
     ax.set_xticklabels(gemm_x, rotation=45, ha='right')
     ax.legend()
-    # Add vertical lines after every third group
-    for i in range(3, len(gemm_x), 3):
+    # Add vertical lines after every fourth group
+    for i in range(4, len(gemm_x), 4):
         ax.axvline(x=i - 0.5, color='gray', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig('perf_gemm.png')
