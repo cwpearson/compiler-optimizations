@@ -101,15 +101,11 @@ tasks:
           RUNNER: "{{.RUNNER}}"
       - task: clone-kernels
         vars:
-          DST: "{{.KERNELS_SRC}}/src-kernels"
+          DST: "{{.KERNELS_SRC}}"
       - |
         CMAKE_BUILD_TYPE="{{.BUILD_TYPE}}"
         if [ "{{.BUILD_TYPE}}" = "Release-Native" ]; then
           CMAKE_BUILD_TYPE="Release"
-        fi
-        ALSO_BUILD_PERF_OPTS=""
-        if [ "" = "1" ]; then
-          ALSO_BUILD_PERF_OPTS=""
         fi
         {{.RUNNER}} cmake -S "{{.KERNELS_SRC}}" -B "{{.KERNELS_BUILD}}" \
           -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
@@ -153,7 +149,7 @@ tasks:
           COMPILER: "{{.COMPILER}}"
       - task: clone-kernels
         vars:
-          DST: "{{.KERNELS_SRC}}/src-kernels"
+          DST: "{{.KERNELS_SRC}}"
       - task: install-kokkos
         vars:
           BUILD_TYPE: "{{.BUILD_TYPE}}"
@@ -197,8 +193,6 @@ tasks:
           --benchmark_repetitions=5 \
           --benchmark_report_aggregates_only=true
       - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
-    sources:
-      - "{{.PERF_ROOT}}/sparse/KokkosKernels_sparse_spmv_benchmark"
     status:
       - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
 
@@ -238,8 +232,6 @@ tasks:
           --amtx "{{.MACHINE_ROOT}}/ifiss_mat/ifiss_mat.mtx" \
           | tee "{{.JOB_DIR}}/sparse_spgemm_ifiss_mat.txt"
       - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
-    sources:
-      - "{{.JOB_DIR}}/sparse/sparse_spgemm"
     status:
       - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
 
@@ -260,8 +252,6 @@ tasks:
         "{{.RUNNER}}" "{{.PERF_ROOT}}/blas/blas3/KokkosBlas3_gemm_perf_test" \
           | tee "{{.JOB_DIR}}/KokkosBlas3_gemm_perf_test.txt"
       - touch "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
-    sources:
-      - "{{.JOB_DIR}}/perf/blas/blas3/KokkosBlas3_gemm_perf_test"
     status:
       - test -f "{{.JOB_DIR}}/{{.TASK}}.COMPLETE"
 
