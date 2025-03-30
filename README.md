@@ -1,6 +1,4 @@
 # compiler-optimizations
 
-```bash
-sudo snap install task --classic
-task all
-```
+> [!IMPORTANT]
+> This repository has been archived and is maintained at https://git.sr.ht/~cwpearson/compiler-optimizations
